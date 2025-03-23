@@ -14,14 +14,7 @@ app.use(
 	helmet.contentSecurityPolicy({
 	  directives: {
 		defaultSrc: ["'self'"], // Only allow resources from the same origin
-		scriptSrc: ["'self'", 'trusted-cdn.com'], // Allow scripts only from self & trusted source
-		styleSrc: ["'self'", "'unsafe-inline'"], // Allow inline styles (use cautiously)
-		imgSrc: ["'self'", "data:"], // Allow images from self and data URIs
-		connectSrc: ["'self'", "https://api.example.com"], // Allow API requests to a specific domain
-		fontSrc: ["'self'", "https://fonts.googleapis.com"], // Allow fonts from Google Fonts
-		objectSrc: ["'none'"], // Block `<object>`, `<embed>`, and `<applet>`
-		frameAncestors: ["'none'"], // Prevent embedding in iframes (Clickjacking protection)
-		upgradeInsecureRequests: true, // Upgrade HTTP requests to HTTPS
+		scriptSrc: ["'self'", 'trusted-cdn.com'] // Allow scripts only from self & trusted source
 	  },
 	})
   );
