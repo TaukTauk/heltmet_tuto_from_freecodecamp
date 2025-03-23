@@ -21,7 +21,7 @@ app.use(
 		fontSrc: ["'self'", "https://fonts.googleapis.com"], // Allow fonts from Google Fonts
 		objectSrc: ["'none'"], // Block `<object>`, `<embed>`, and `<applet>`
 		frameAncestors: ["'none'"], // Prevent embedding in iframes (Clickjacking protection)
-		upgradeInsecureRequests: [], // Upgrade HTTP requests to HTTPS
+		upgradeInsecureRequests: true, // Upgrade HTTP requests to HTTPS
 	  },
 	})
   );
