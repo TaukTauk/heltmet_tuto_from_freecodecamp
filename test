@@ -1,0 +1,237 @@
+const morgan = require('morgan');
+const fs = require('fs');
+const path = require('path');
+
+// Set up enhanced logging middleware that works with your authentication
+const setupLoggerMiddleware = (app) => {
+  // Create a logs directory if it doesn't exist
+  const logDirectory = path.join(__dirname, '..', 'logs');
+  fs.existsSync(logDirectory) || fs.mkdirSync(logDirectory);
+  
+  // Create a write stream for access logs
+  const accessLogStream = fs.createWriteStream(
+    path.join(logDirectory, 'access.log'),
+    { flags: 'a' }
+  );
+  
+  // Create a write stream for audit logs
+  const auditLogStream = fs.createWriteStream(
+    path.join(logDirectory, 'audit.log'),
+    { flags: 'a' }
+  );
+
+  // Create custom token for user information
+  morgan.token('user-info', function (req, res) {
+    if (req.user) {
+      return `${req.user.id}:${req.user.name}:${req.user.email}:${req.user.orgId}`;
+    }
+    return 'unauthenticated';
+  });
+
+  // Create custom token for operation details
+  morgan.token('operation', function (req, res) {
+    const method = req.method;
+    const path = req.path;
+    
+    let operation = 'UNKNOWN';
+    if (method === 'POST') operation = 'CREATE';
+    if (method === 'GET') operation = 'READ';
+    if (method === 'PUT' || method === 'PATCH') operation = 'UPDATE';
+    if (method === 'DELETE') operation = 'DELETE';
+    
+    return operation;
+  });
+
+  // Add standard access logging
+  app.use(morgan('combined', { stream: accessLogStream }));
+
+  // Add detailed audit logging for CRUD operations
+  app.use(morgan('[AUDIT] :date[iso] - User::user-info - :operation - :method :url - Status::status', { 
+    stream: auditLogStream,
+    // Skip static resources and non-API routes
+    skip: function (req, res) {
+      return req.path.startsWith('/static') || 
+             req.path === '/favicon.ico' ||
+             req.path.startsWith('/public');
+    }
+  }));
+
+  // Add console logging in development
+  if (process.env.NODE_ENV !== 'production') {
+    app.use(morgan('dev'));
+  }
+};
+
+// Create a database audit logging middleware that captures more details
+const createAuditDbLogger = (db_connection) => {
+  return (req, res, next) => {
+    // Save the original methods we need to wrap
+    const oldSend = res.send;
+    const oldJson = res.json;
+    const oldEnd = res.end;
+    
+    // Get request start time
+    const startTime = Date.now();
+    
+    // Function to log the audit entry
+    const logAudit = (body) => {
+      const endTime = Date.now();
+      const responseTime = endTime - startTime;
+      
+      // Basic audit info
+      const auditInfo = {
+        userId: req.user ? req.user.id : null,
+        userName: req.user ? req.user.name : null,
+        userEmail: req.user ? req.user.email : null,
+        orgId: req.user ? req.user.orgId : null,
+        method: req.method,
+        endpoint: req.originalUrl,
+        statusCode: res.statusCode,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestTime: new Date(startTime),
+        responseTime: responseTime,
+        requestBody: JSON.stringify(sanitizeObject(req.body)),
+        responseBody: typeof body === 'string' ? body : JSON.stringify(body),
+      };
+
+      // Determine operation type
+      if (req.method === 'POST') auditInfo.operation = 'CREATE';
+      else if (req.method === 'GET') auditInfo.operation = 'READ';
+      else if (req.method === 'PUT' || req.method === 'PATCH') auditInfo.operation = 'UPDATE';
+      else if (req.method === 'DELETE') auditInfo.operation = 'DELETE';
+      else auditInfo.operation = 'OTHER';
+      
+      // Insert into database
+      const query = `
+        INSERT INTO audit_logs 
+        (userId, userName, userEmail, orgId, method, endpoint, statusCode, 
+         ipAddress, userAgent, requestTime, responseTime, operation, requestBody, responseBody) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      
+      const values = [
+        auditInfo.userId, 
+        auditInfo.userName,
+        auditInfo.userEmail,
+        auditInfo.orgId,
+        auditInfo.method,
+        auditInfo.endpoint,
+        auditInfo.statusCode,
+        auditInfo.ipAddress,
+        auditInfo.userAgent,
+        auditInfo.requestTime,
+        auditInfo.responseTime,
+        auditInfo.operation,
+        auditInfo.requestBody,
+        auditInfo.responseBody
+      ];
+      
+      db_connection.query(query, values, (err, results) => {
+        if (err) {
+          console.error('Error saving audit log:', err);
+        }
+      });
+    };
+    
+    // Function to sanitize sensitive data
+    const sanitizeObject = (obj) => {
+      if (!obj) return obj;
+      
+      const sanitized = {...obj};
+      
+      // Remove sensitive fields
+      if (sanitized.password) sanitized.password = '[REDACTED]';
+      if (sanitized.token) sanitized.token = '[REDACTED]';
+      if (sanitized.creditCard) sanitized.creditCard = '[REDACTED]';
+      
+      return sanitized;
+    };
+    
+    // Override send
+    res.send = function(body) {
+      logAudit(body);
+      return oldSend.apply(res, arguments);
+    };
+    
+    // Override json
+    res.json = function(body) {
+      logAudit(body);
+      return oldJson.apply(res, arguments);
+    };
+    
+    // Override end (to catch responses without bodies)
+    res.end = function(chunk) {
+      if (!res._auditLogged) {
+        res._auditLogged = true;
+        logAudit(chunk);
+      }
+      return oldEnd.apply(res, arguments);
+    };
+    
+    next();
+  };
+};
+
+// Here's the SQL to create the audit_logs table
+/*
+CREATE TABLE audit_logs (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  userId INT,
+  userName VARCHAR(255),
+  userEmail VARCHAR(255),
+  orgId INT,
+  method VARCHAR(10) NOT NULL,
+  endpoint VARCHAR(255) NOT NULL,
+  statusCode INT NOT NULL,
+  ipAddress VARCHAR(50),
+  userAgent TEXT,
+  requestTime DATETIME NOT NULL,
+  responseTime INT,
+  operation VARCHAR(10) NOT NULL,
+  requestBody TEXT,
+  responseBody TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_audit_user ON audit_logs(userId);
+CREATE INDEX idx_audit_org ON audit_logs(orgId);
+CREATE INDEX idx_audit_time ON audit_logs(requestTime);
+CREATE INDEX idx_audit_operation ON audit_logs(operation);
+*/
+
+// Usage in your main app file
+const express = require('express');
+const app = express();
+const db_connection = require('./path-to-your-db-connection');
+
+// Parse JSON request bodies
+app.use(express.json());
+
+// Set up file-based logging first (captures all requests)
+setupLoggerMiddleware(app);
+
+// Routes that don't require authentication
+app.post('/api/login', require('./controllers/auth').loginUser);
+
+// Authentication middleware for protected routes
+app.use('/api', (req, res, next) => {
+  // Skip authentication for login route
+  if (req.path === '/login') return next();
+  
+  // Run your existing authentication middleware
+  authenticateToken(req, res, next);
+});
+
+// Database audit logger for authenticated routes
+// Apply after authentication but before your route handlers
+app.use('/api', createAuditDbLogger(db_connection));
+
+// Your API routes
+app.use('/api/transactions', require('./routes/transactions'));
+app.use('/api/users', require('./routes/users'));
+// ... other routes
+
+app.listen(3000, () => {
+  console.log('Server running on port 3000');
+});
