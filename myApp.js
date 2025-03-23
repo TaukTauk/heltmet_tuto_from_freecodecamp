@@ -6,8 +6,8 @@ app.use(helmet.hidePoweredBy());
 app.use(helmet.frameguard({action: 'deny'}));
 app.use(helmet.xssFilter()); // use content security policy instead of this 
 app.use(helmet.noSniff()); // protect content type override
-
-
+app.use(helmet.ieNoOpen()); // prevent executing the downloaded file in IE
+app.use(helmet.hsts({maxAge: (90 * 60 * 60 * 24) , force: true}));
 
 
 
