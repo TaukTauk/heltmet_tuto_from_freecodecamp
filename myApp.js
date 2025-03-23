@@ -20,16 +20,24 @@ const helmet = require('helmet');
 //   );
 
 app.use(helmet({
-	frameguard: {         // configure
-	  action: 'deny'
-	},
-	contentSecurityPolicy: {    // enable and configure
+	frameguard: { action: 'deny' },
+	contentSecurityPolicy: {
 	  directives: {
 		defaultSrc: ["'self'"],
-		styleSrc: ['style.com'],
+		styleSrc: ["'self'"],
+		imgSrc: ["'self'"],
+		scriptSrc: ["'self'"],
+		connectSrc: ["'self'"],
+		upgradeInsecureRequests: true,
 	  }
 	},
-	dnsPrefetchControl: false     // disable
+	dnsPrefetchControl: false, // may compromise the speed and performance
+	xssFilter: true,
+	noSniff: true,
+	hsts: {
+	  maxAge: 15552000,
+	  includeSubDomains: true // force to use https 
+	}
   }))
 
 
