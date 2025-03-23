@@ -8,9 +8,23 @@ app.use(helmet.xssFilter()); // use content security policy instead of this
 app.use(helmet.noSniff()); // protect content type override
 app.use(helmet.ieNoOpen()); // prevent executing the downloaded file in IE
 app.use(helmet.hsts({maxAge: (90 * 60 * 60 * 24) , force: true}));
-
-
-
+app.use(helmet.dnsPrefetchControl()); //compromise the speed and performance
+app.use(helmet.noCache()); // control cache
+app.use(
+	helmet.contentSecurityPolicy({
+	  directives: {
+		defaultSrc: ["'self'"], // Only allow resources from the same origin
+		scriptSrc: ["'self'", "'trusted-cdn.com'"], // Allow scripts only from self & trusted source
+		styleSrc: ["'self'", "'unsafe-inline'"], // Allow inline styles (use cautiously)
+		imgSrc: ["'self'", "data:"], // Allow images from self and data URIs
+		connectSrc: ["'self'", "https://api.example.com"], // Allow API requests to a specific domain
+		fontSrc: ["'self'", "https://fonts.googleapis.com"], // Allow fonts from Google Fonts
+		objectSrc: ["'none'"], // Block `<object>`, `<embed>`, and `<applet>`
+		frameAncestors: ["'none'"], // Prevent embedding in iframes (Clickjacking protection)
+		upgradeInsecureRequests: [], // Upgrade HTTP requests to HTTPS
+	  },
+	})
+  );
 
 
 
